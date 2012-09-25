@@ -50,7 +50,9 @@ _.extend(WebSQLStore.prototype,{
 		//when you want use your id as identifier, use apiid attribute
 		if(!model.attributes[model.idAttribute]) {
 			// Reference model.attributes.apiid for backward compatibility.
-			model.set(model.idAttribute, (model.attributes.apiid)?(model.attributes.apiid):(guid()));
+			var obj = {};
+			obj[model.idAttribute] = (model.attributes.apiid)?(model.attributes.apiid):(guid());
+			model.set(obj);
 		}
 
 		this._executeSql("INSERT INTO `" + this.tableName + "`(`id`,`value`)VALUES(?,?);",[model.attributes[model.idAttribute], JSON.stringify(model.toJSON())], success, error);
@@ -132,7 +134,7 @@ Backbone.sync = function (method, model, options) {
 	};
 	
 	switch(method) {
-		case "read":	(model.attributes[model.idAttribute] ? store.find(model,success,error) : store.findAll(model, success, error)); 
+		case "read":	((model.attributes && model.attributes[model.idAttribute]) ? store.find(model,success,error) : store.findAll(model, success, error)); 
 			break;
 		case "create":	store.create(model,success,error);
 			break;
