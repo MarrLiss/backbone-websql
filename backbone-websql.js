@@ -115,7 +115,7 @@ Backbone.sync = function (method, model, options) {
 	}
 	
 	success = function (tx, res) {
-		var len = res.rows.length,result, i;
+		var len = res.rows.length, result, i;
 		if (len > 0) {
 			result = [];
 
@@ -126,15 +126,27 @@ Backbone.sync = function (method, model, options) {
 		
 		options.success(result);
 	};
+	successFind = function(tx, res) {
+		// console.log(res);
+		var len = res.rows.length;
+		var result;
+		if (len > 0) {
+			result = JSON.parse(res.rows.item(0).value)
+		}
+		options.success(result);
+	};
 	error = function (tx,error) {
-		window.console.error("sql error");
-		window.console.error(error);
-		window.console.error(tx);
+		window.console.error("sql error", tx, error);
+		// window.console.error(error);
+		// window.console.error(tx);
 		options.error(error);
 	};
 	
 	switch(method) {
-		case "read":	((model.attributes && model.attributes[model.idAttribute]) ? store.find(model,success,error) : store.findAll(model, success, error)); 
+		case "read":	
+			((model.attributes && model.attributes[model.idAttribute]) 
+				? store.find(model,successFind,error) 
+				: store.findAll(model, success, error)); 
 			break;
 		case "create":	store.create(model,success,error);
 			break;
