@@ -43,6 +43,7 @@ var WebSQLStore = function (db, tableName, initSuccessCallback, initErrorCallbac
 	//});
 	this._executeSql("CREATE TABLE IF NOT EXISTS `" + tableName + "` (`id` unique, `value`);",null,success, error);
 };
+WebSQLStore.newCallbacks = Backbone.VERSION == '0.9.10' || parseInt(Backbone.VERSION.split('.')[0]) >= 1;
 WebSQLStore.debug = false;
 _.extend(WebSQLStore.prototype,{
 	
@@ -124,13 +125,20 @@ Backbone.sync = function (method, model, options) {
 			}
 		} 
 		
-		options.success(result);
+		if (WebSQLStore.newCallbacks)
+			options.success(model, result, options);
+		else
+			options.success(result);
 	};
 	error = function (tx,error) {
 		window.console.error("sql error");
 		window.console.error(error);
 		window.console.error(tx);
-		options.error(error);
+
+		if (WebSQLStore.newCallbacks)
+			options.error(model, error, options);
+		else
+			options.error(error);
 	};
 	
 	switch(method) {
