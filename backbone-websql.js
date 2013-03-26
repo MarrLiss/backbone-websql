@@ -89,7 +89,12 @@ _.extend(WebSQLStore.prototype,{
 
 		//window.console.log("sql update")
 		var id = (model.attributes[model.idAttribute] || model.attributes.id);
-		this._executeSql("UPDATE `"+this.tableName+"` SET `value`=? WHERE(`id`=?);",[JSON.stringify(model.toJSON()), model.attributes[model.idAttribute]], success, error);
+		this._executeSql("UPDATE `"+this.tableName+"` SET `value`=? WHERE(`id`=?);",[JSON.stringify(model.toJSON()), model.attributes[model.idAttribute]], function(tx, result) {
+			if (result.rowsAffected == 1)
+				success(tx, result);
+			else
+				error(tx, new Error('UPDATE affected ' + result.rowsAffected + ' rows'));
+		}, error);
 	},
 	
 	_save: function (model, success, error) {
