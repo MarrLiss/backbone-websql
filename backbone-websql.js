@@ -44,6 +44,7 @@ var WebSQLStore = function (db, tableName, initSuccessCallback, initErrorCallbac
 	this._executeSql("CREATE TABLE IF NOT EXISTS `" + tableName + "` (`id` unique, `value`);",null,success, error);
 };
 WebSQLStore.debug = false;
+WebSQLStore.insertOrReplace = false;
 _.extend(WebSQLStore.prototype,{
 	
 	create: function (model,success,error) {
@@ -61,7 +62,8 @@ _.extend(WebSQLStore.prototype,{
 			model.set(obj);
 		}
 
-		this._executeSql("INSERT INTO `" + this.tableName + "`(`id`,`value`)VALUES(?,?);",[model.attributes[model.idAttribute], JSON.stringify(model.toJSON())], success, error);
+		var orReplace = WebSQLStore.insertOrReplace ? ' OR REPLACE' : '';
+		this._executeSql("INSERT" + orReplace + " INTO `" + this.tableName + "`(`id`,`value`)VALUES(?,?);",[model.attributes[model.idAttribute], JSON.stringify(model.toJSON())], success, error);
 	},
 	
 	destroy: function (model, success, error) {
@@ -82,6 +84,9 @@ _.extend(WebSQLStore.prototype,{
 	},
 	
 	update: function (model, success, error) {
+		if (WebSQLStore.insertOrReplace)
+			return this.create(model, success, error);
+
 		//window.console.log("sql update")
 		var id = (model.attributes[model.idAttribute] || model.attributes.id);
 		this._executeSql("UPDATE `"+this.tableName+"` SET `value`=? WHERE(`id`=?);",[JSON.stringify(model.toJSON()), model.attributes[model.idAttribute]], success, error);
