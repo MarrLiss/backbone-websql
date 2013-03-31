@@ -51,7 +51,13 @@ _.extend(WebSQLStore.prototype,{
 		if(!model.attributes[model.idAttribute]) {
 			// Reference model.attributes.apiid for backward compatibility.
 			var obj = {};
-			obj[model.idAttribute] = (model.attributes.apiid)?(model.attributes.apiid):(guid());
+
+			if(model.attributes.apiid){
+				obj[model.idAttribute] = model.attributes.apiid;
+				delete model.attributes.apiid;
+			}else{
+				obj[model.idAttribute] = guid();
+			}			 
 			model.set(obj);
 		}
 
@@ -113,6 +119,7 @@ Backbone.sync = function (method, model, options) {
 		window.console.warn("[BACKBONE-WEBSQL] model without store object -> ", model);
 		return;
 	}
+	var isSingleResult = false;
 	
 	success = function (tx, res) {
 		var len = res.rows.length,result, i;
@@ -121,6 +128,9 @@ Backbone.sync = function (method, model, options) {
 
 			for (i=0;i<len;i++) {
 				result.push(JSON.parse(res.rows.item(i).value));
+			}
+			if(isSingleResult && result.length!==0){
+				result = result[0];
 			}
 		} 
 		
@@ -134,7 +144,15 @@ Backbone.sync = function (method, model, options) {
 	};
 	
 	switch(method) {
-		case "read":	((model.attributes && model.attributes[model.idAttribute]) ? store.find(model,success,error) : store.findAll(model, success, error)); 
+		
+		case "read":	
+			if(model.attributes && model.attributes[model.idAttribute]){
+				isSingleResult = true;
+				store.find(model,success,error)
+			}else{
+				store.findAll(model, success, error)
+			}			
+
 			break;
 		case "create":	store.create(model,success,error);
 			break;
