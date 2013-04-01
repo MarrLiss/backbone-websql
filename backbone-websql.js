@@ -28,9 +28,17 @@ function guid() {
 
 // ====== [ WebSQLStore ] ======
 
-var WebSQLStore = function (db, tableName, initSuccessCallback, initErrorCallback) {
+var WebSQLStore = function (db, tableName, columns, initSuccessCallback, initErrorCallback) {
+	// make columns optional for backwards compatibility w/ original API
+	if (typeof columns == 'function') {
+		initErrorCallback = initSuccessCallback;
+		initSuccessCallback = columns;
+		columns = null;
+	}
+
 	this.tableName = tableName;
 	this.db = db;
+	this.columns = columns || [];
 	var success = function (tx,res) {
 		if(initSuccessCallback) initSuccessCallback();
 	};
@@ -41,7 +49,9 @@ var WebSQLStore = function (db, tableName, initSuccessCallback, initErrorCallbac
 	//db.transaction (function(tx) {
 	//	tx.executeSql("CREATE TABLE IF NOT EXISTS `" + tableName + "` (`id` unique, `value`);",[],success, error);
 	//});
-	this._executeSql("CREATE TABLE IF NOT EXISTS `" + tableName + "` (`id` unique, `value`);",null,success, error, {});
+	var colDefns = ["`id` unique", "`value`"];
+	colDefns = colDefns.concat(this.columns.map(createColDefn));
+	this._executeSql("CREATE TABLE IF NOT EXISTS `" + tableName + "` (" + colDefns.join(", ") + ");",null,success, error, {});
 };
 WebSQLStore.debug = false;
 WebSQLStore.insertOrReplace = false;
@@ -62,8 +72,16 @@ _.extend(WebSQLStore.prototype,{
 			model.set(obj);
 		}
 
+		var colNames = ["`id`", "`value`"];
+		var placeholders = ['?', '?'];
+		var params = [model.attributes[model.idAttribute], JSON.stringify(model.toJSON())];
+		this.columns.forEach(function(col) {
+			colNames.push("`" + col.name + "`");
+			placeholders.push(['?']);
+			params.push(model.attributes[col.name]);
+		});
 		var orReplace = WebSQLStore.insertOrReplace ? ' OR REPLACE' : '';
-		this._executeSql("INSERT" + orReplace + " INTO `" + this.tableName + "`(`id`,`value`)VALUES(?,?);",[model.attributes[model.idAttribute], JSON.stringify(model.toJSON())], success, error, options);
+		this._executeSql("INSERT" + orReplace + " INTO `" + this.tableName + "`(" + colNames.join(",") + ")VALUES(" + placeholders.join(",") + ");", params, success, error, options);
 	},
 	
 	destroy: function (model, success, error, options) {
@@ -78,9 +96,25 @@ _.extend(WebSQLStore.prototype,{
 		this._executeSql("SELECT `id`, `value` FROM `"+this.tableName+"` WHERE(`id`=?);",[model.attributes[model.idAttribute]], success, error, options);
 	},
 	
-	findAll: function (model, success,error, options) {
+	findAll: function (model, success, error, options) {
 		//window.console.log("sql findAll");
-		this._executeSql("SELECT `id`, `value` FROM `"+this.tableName+"`;",null, success, error, options);			
+		var params = [];
+		var sql = "SELECT `id`, `value` FROM `"+this.tableName+"`";
+		if (options.filters) {
+			if (typeof options.filters == 'string') {
+				sql += ' WHERE ' + options.filters;
+			}
+			else if (typeof options.filters == 'object') {
+				sql += ' WHERE ' + Object.keys(options.filters).map(function(col) {
+					params.push(options.filters[col]);
+					return '`' + col + '` = ?';
+				}).join(' AND ');
+			}
+			else {
+				throw new Error('Unsupported filters type: ' + typeof options.filters);
+			}
+		}
+		this._executeSql(sql, params, success, error, options);			
 	},
 	
 	update: function (model, success, error, options) {
@@ -89,7 +123,15 @@ _.extend(WebSQLStore.prototype,{
 
 		//window.console.log("sql update")
 		var id = (model.attributes[model.idAttribute] || model.attributes.id);
-		this._executeSql("UPDATE `"+this.tableName+"` SET `value`=? WHERE(`id`=?);",[JSON.stringify(model.toJSON()), model.attributes[model.idAttribute]], success, error, options);
+
+		var setStmts = ["`value`=?"];
+		var params = [JSON.stringify(model.toJSON())];
+		this.columns.forEach(function(col) {
+			setStmts.push("`" + col.name + "`=?");
+			params.push(model.attributes[col.name]);
+		});
+		params.push(model.attributes[model.idAttribute]);
+		this._executeSql("UPDATE `"+this.tableName+"` SET " + setStmts.join(" AND ") + " WHERE(`id`=?);", params, success, error, options);
 	},
 	
 	_save: function (model, success, error) {
@@ -174,6 +216,30 @@ Backbone.sync = function (method, model, options) {
 			window.console.error(method);
 	}		
 };
+
+var typeMap = {
+	"number": "INTEGER",
+  "string": "TEXT",
+  "boolean": "BOOLEAN",
+  "array": "LIST",
+  "datetime": "TEXT",
+  "date": "TEXT",
+  "object": "TEXT"
+};
+function createColDefn(col) {
+	if (col.type && !(col.type in typeMap))
+		throw new Error("Unsupported type: " + col.type);
+
+	var defn = "`" + col.name + "`";
+	if (col.type) {
+		if (col.scale)
+			defn += " REAL";
+		else
+			defn += " " + typeMap[col.type];
+	}
+	return defn;
+}
+
 Backbone.WebSQLStore = WebSQLStore;
 return( WebSQLStore );// Support backward compatibility.
 })( window, Backbone );
