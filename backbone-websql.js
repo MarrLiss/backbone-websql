@@ -119,7 +119,7 @@ _.extend(WebSQLStore.prototype,{
 	
 	update: function (model, success, error, options) {
 		if (WebSQLStore.insertOrReplace)
-			return this.create(model, success, error);
+			return this.create(model, success, error, options);
 
 		//window.console.log("sql update")
 		var id = (model.attributes[model.idAttribute] || model.attributes.id);
