@@ -149,7 +149,7 @@ _.extend(WebSQLStore.prototype,{
 		};
 		var error = function(tx,error) {
 			if(WebSQLStore.debug) {window.console.error(SQL, params, " - error: " + error)};
-			if(errorCallback) errorCallback(tx,error);
+			if(errorCallback) return errorCallback(tx,error);
 		};
 		
 		if (options.transaction) {
