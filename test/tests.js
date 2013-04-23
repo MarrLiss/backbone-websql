@@ -1,19 +1,5 @@
 (function(Backbone, _) {
-
-function assert(bool, msg) {
-  if (!bool) throw new Error(msg);
-}
-assert.equal = function(actual, expected) {
-  if (actual != expected)
-    fail(actual, expected);
-}
-assert.deepEqual = function(actual, expected) {
-  if (!_.isEqual(actual, expected))
-    fail(JSON.stringify(actual), JSON.stringify(expected));
-}
-function fail(actual, expected) {
-  throw new Error('Actual (' + actual + ') != Expected (' + expected + ')');
-}
+var assert = chai.assert;
 
 var db = openDatabase("bb-websql-tests", "", "Backbone Websql Tests", 1024*1024);
 
