@@ -1,3 +1,0 @@
-Implementation of Backbone.sync method which stores data to WebSQL.
-
-With polite thanks to Smarcoms web services s.r.o. ( http://www.smarcoms.cz )
