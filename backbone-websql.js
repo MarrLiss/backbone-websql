@@ -131,7 +131,12 @@ _.extend(WebSQLStore.prototype,{
 			params.push(model.attributes[col.name]);
 		});
 		params.push(model.attributes[model.idAttribute]);
-		this._executeSql("UPDATE `"+this.tableName+"` SET " + setStmts.join(" AND ") + " WHERE(`id`=?);", params, success, error, options);
+		this._executeSql("UPDATE `"+this.tableName+"` SET " + setStmts.join(" AND ") + " WHERE(`id`=?);", params, function(tx, result) {
+			if (result.rowsAffected == 1)
+				success(tx, result);
+			else
+				error(tx, new Error('UPDATE affected ' + result.rowsAffected + ' rows'));
+		}, error, options);
 	},
 	
 	_save: function (model, success, error) {
