@@ -28,9 +28,17 @@ function guid() {
 
 // ====== [ WebSQLStore ] ======
 
-var WebSQLStore = function (db, tableName, initSuccessCallback, initErrorCallback) {
+var WebSQLStore = function (db, tableName, columns, initSuccessCallback, initErrorCallback) {
+	// make columns optional for backwards compatibility w/ original API
+	if (typeof columns == 'function') {
+		initErrorCallback = initSuccessCallback;
+		initSuccessCallback = columns;
+		columns = null;
+	}
+
 	this.tableName = tableName;
 	this.db = db;
+	this.columns = columns || [];
 	var success = function (tx,res) {
 		if(initSuccessCallback) initSuccessCallback();
 	};
@@ -41,13 +49,15 @@ var WebSQLStore = function (db, tableName, initSuccessCallback, initErrorCallbac
 	//db.transaction (function(tx) {
 	//	tx.executeSql("CREATE TABLE IF NOT EXISTS `" + tableName + "` (`id` unique, `value`);",[],success, error);
 	//});
-	this._executeSql("CREATE TABLE IF NOT EXISTS `" + tableName + "` (`id` unique, `value`);",null,success, error);
+	var colDefns = ["`id` unique", "`value`"];
+	colDefns = colDefns.concat(this.columns.map(createColDefn));
+	this._executeSql("CREATE TABLE IF NOT EXISTS `" + tableName + "` (" + colDefns.join(", ") + ");",null,success, error, {});
 };
 WebSQLStore.debug = false;
 WebSQLStore.insertOrReplace = false;
 _.extend(WebSQLStore.prototype,{
 	
-	create: function (model,success,error) {
+	create: function (model,success,error,options) {
 		//when you want use your id as identifier, use apiid attribute
 		if(!model.attributes[model.idAttribute]) {
 			// Reference model.attributes.apiid for backward compatibility.
@@ -62,39 +72,71 @@ _.extend(WebSQLStore.prototype,{
 			model.set(obj);
 		}
 
+		var colNames = ["`id`", "`value`"];
+		var placeholders = ['?', '?'];
+		var params = [model.attributes[model.idAttribute], JSON.stringify(model.toJSON())];
+		this.columns.forEach(function(col) {
+			colNames.push("`" + col.name + "`");
+			placeholders.push(['?']);
+			params.push(model.attributes[col.name]);
+		});
 		var orReplace = WebSQLStore.insertOrReplace ? ' OR REPLACE' : '';
-		this._executeSql("INSERT" + orReplace + " INTO `" + this.tableName + "`(`id`,`value`)VALUES(?,?);",[model.attributes[model.idAttribute], JSON.stringify(model.toJSON())], success, error);
+		this._executeSql("INSERT" + orReplace + " INTO `" + this.tableName + "`(" + colNames.join(",") + ")VALUES(" + placeholders.join(",") + ");", params, success, error, options);
 	},
 	
-	destroy: function (model, success, error) {
+	destroy: function (model, success, error, options) {
 		//window.console.log("sql destroy");
 		var id = (model.attributes[model.idAttribute] || model.attributes.id);
-		this._executeSql("DELETE FROM `"+this.tableName+"` WHERE(`id`=?);",[model.attributes[model.idAttribute]],success, error);
+		this._executeSql("DELETE FROM `"+this.tableName+"` WHERE(`id`=?);",[model.attributes[model.idAttribute]],success, error, options);
 	},
 	
-	find: function (model, success, error) {
+	find: function (model, success, error, options) {
 		//window.console.log("sql find");
 		var id = (model.attributes[model.idAttribute] || model.attributes.id);
-		this._executeSql("SELECT `id`, `value` FROM `"+this.tableName+"` WHERE(`id`=?);",[model.attributes[model.idAttribute]], success, error);
+		this._executeSql("SELECT `id`, `value` FROM `"+this.tableName+"` WHERE(`id`=?);",[model.attributes[model.idAttribute]], success, error, options);
 	},
 	
-	findAll: function (model, success,error) {
+	findAll: function (model, success, error, options) {
 		//window.console.log("sql findAll");
-		this._executeSql("SELECT `id`, `value` FROM `"+this.tableName+"`;",null, success, error);			
+		var params = [];
+		var sql = "SELECT `id`, `value` FROM `"+this.tableName+"`";
+		if (options.filters) {
+			if (typeof options.filters == 'string') {
+				sql += ' WHERE ' + options.filters;
+			}
+			else if (typeof options.filters == 'object') {
+				sql += ' WHERE ' + Object.keys(options.filters).map(function(col) {
+					params.push(options.filters[col]);
+					return '`' + col + '` = ?';
+				}).join(' AND ');
+			}
+			else {
+				throw new Error('Unsupported filters type: ' + typeof options.filters);
+			}
+		}
+		this._executeSql(sql, params, success, error, options);			
 	},
 	
-	update: function (model, success, error) {
+	update: function (model, success, error, options) {
 		if (WebSQLStore.insertOrReplace)
-			return this.create(model, success, error);
+			return this.create(model, success, error, options);
 
 		//window.console.log("sql update")
 		var id = (model.attributes[model.idAttribute] || model.attributes.id);
-		this._executeSql("UPDATE `"+this.tableName+"` SET `value`=? WHERE(`id`=?);",[JSON.stringify(model.toJSON()), model.attributes[model.idAttribute]], function(tx, result) {
+
+		var setStmts = ["`value`=?"];
+		var params = [JSON.stringify(model.toJSON())];
+		this.columns.forEach(function(col) {
+			setStmts.push("`" + col.name + "`=?");
+			params.push(model.attributes[col.name]);
+		});
+		params.push(model.attributes[model.idAttribute]);
+		this._executeSql("UPDATE `"+this.tableName+"` SET " + setStmts.join(" AND ") + " WHERE(`id`=?);", params, function(tx, result) {
 			if (result.rowsAffected == 1)
 				success(tx, result);
 			else
 				error(tx, new Error('UPDATE affected ' + result.rowsAffected + ' rows'));
-		}, error);
+		}, error, options);
 	},
 	
 	_save: function (model, success, error) {
@@ -105,18 +147,24 @@ _.extend(WebSQLStore.prototype,{
 		});
 	},
 	
-	_executeSql: function (SQL, params, successCallback, errorCallback) {
+	_executeSql: function (SQL, params, successCallback, errorCallback, options) {
 		var success = function(tx,result) {
 			if(WebSQLStore.debug) {window.console.log(SQL, params, " - finished");}
 			if(successCallback) successCallback(tx,result);
 		};
 		var error = function(tx,error) {
 			if(WebSQLStore.debug) {window.console.error(SQL, params, " - error: " + error)};
-			if(errorCallback) errorCallback(tx,error);
+			if(errorCallback) return errorCallback(tx,error);
 		};
-		this.db.transaction(function(tx) {
-			tx.executeSql(SQL, params, success, error);
-		});
+		
+		if (options.transaction) {
+			options.transaction.executeSql(SQL, params, success, error);
+		}
+		else {
+			this.db.transaction(function(tx) {
+				tx.executeSql(SQL, params, success, error);
+			});
+		}
 	}
 });
 
@@ -154,26 +202,49 @@ Backbone.sync = function (method, model, options) {
 	};
 	
 	switch(method) {
-		
 		case "read":	
 			if(model.attributes && model.attributes[model.idAttribute]){
 				isSingleResult = true;
-				store.find(model,success,error)
+				store.find(model,success,error,options)
 			}else{
-				store.findAll(model, success, error)
+				store.findAll(model, success, error, options)
 			}			
 
 			break;
-		case "create":	store.create(model,success,error);
+		case "create":	store.create(model,success,error,options);
 			break;
-		case "update":	store.update(model,success,error);
+		case "update":	store.update(model,success,error,options);
 			break;
-		case "delete":	store.destroy(model,success,error);
+		case "delete":	store.destroy(model,success,error,options);
 			break;
 		default:
 			window.console.error(method);
 	}		
 };
+
+var typeMap = {
+	"number": "INTEGER",
+  "string": "TEXT",
+  "boolean": "BOOLEAN",
+  "array": "LIST",
+  "datetime": "TEXT",
+  "date": "TEXT",
+  "object": "TEXT"
+};
+function createColDefn(col) {
+	if (col.type && !(col.type in typeMap))
+		throw new Error("Unsupported type: " + col.type);
+
+	var defn = "`" + col.name + "`";
+	if (col.type) {
+		if (col.scale)
+			defn += " REAL";
+		else
+			defn += " " + typeMap[col.type];
+	}
+	return defn;
+}
+
 Backbone.WebSQLStore = WebSQLStore;
 return( WebSQLStore );// Support backward compatibility.
 })( window, Backbone );
